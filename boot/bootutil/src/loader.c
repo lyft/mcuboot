@@ -612,7 +612,7 @@ split_image_check(struct image_header *app_hdr,
     return 0;
 }
 
-static int
+int
 boot_validate_slot(int slot)
 {
     const struct flash_area *fap;

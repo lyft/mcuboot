@@ -92,6 +92,8 @@ int boot_swap_type(void);
 int boot_set_pending(int permanent);
 int boot_set_confirmed(void);
 
+int boot_validate_slot(int slot);
+
 #define SPLIT_GO_OK                 (0)
 #define SPLIT_GO_NON_MATCHING       (-1)
 #define SPLIT_GO_ERR                (-2)
