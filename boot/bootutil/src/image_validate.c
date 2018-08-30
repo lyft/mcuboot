@@ -132,6 +132,78 @@ bootutil_find_key(uint8_t *keyhash, uint8_t keyhash_len)
 }
 #endif
 
+int bootutil_img_get_tlv_sha256_hash(int slot, uint8_t * out_hash)
+{
+    int rc;
+    struct image_header hdr;
+    const struct flash_area *fap = NULL;
+
+    rc = flash_area_open(flash_area_id_from_image_slot(slot), &fap);
+    if (rc != 0)
+    {
+        return rc;
+    }
+
+    rc = flash_area_read(fap, 0, &hdr, sizeof(hdr));
+    if (rc != 0) {
+        return rc;
+    }
+
+    uint32_t off;
+    uint32_t end;
+    struct image_tlv_info info;
+    struct image_tlv tlv;
+
+    if (hdr.ih_magic != IMAGE_MAGIC) {
+        return -1;
+    }
+
+    /* The TLVs come after the image. */
+    /* After image there are TLVs. */
+    off = hdr.ih_img_size + hdr.ih_hdr_size;
+
+    rc = flash_area_read(fap, off, &info, sizeof(info));
+    if (rc) {
+        return rc;
+    }
+    if (info.it_magic != IMAGE_TLV_INFO_MAGIC) {
+        return -1;
+    }
+    end = off + info.it_tlv_tot;
+    off += sizeof(info);
+
+    /*
+     * Traverse through all of the TLVs, performing any checks we know
+     * and are able to do.
+     */
+    for (; off < end; off += sizeof(tlv) + tlv.it_len) {
+        rc = flash_area_read(fap, off, &tlv, sizeof tlv);
+        if (rc) {
+            return rc;
+        }
+
+        if (tlv.it_type == IMAGE_TLV_SHA256) {
+            /*
+             * Verify the SHA256 image hash.  This must always be
+             * present.
+             */
+            if (tlv.it_len != 32) {
+                return -1;
+            }
+            rc = flash_area_read(fap, off + sizeof(tlv), out_hash, 32);
+            if (rc) {
+                return rc;
+            }
+            else {
+                // Read hash successfully
+                return 0;
+            }
+        }
+    }
+    // Only gets here if the hash wasn't found in the TLVs
+    return -1;
+}
+
 /*
  * Verify the integrity of the image.
  * Return non-zero if image could not be validated/does not validate.

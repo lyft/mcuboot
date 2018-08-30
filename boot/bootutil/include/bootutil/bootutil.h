@@ -93,6 +93,7 @@ int boot_set_pending(int permanent);
 int boot_set_confirmed(void);
 
 int boot_validate_slot(int slot);
+int bootutil_img_get_tlv_sha256_hash(int slot, uint8_t * out_hash);
 
 #define SPLIT_GO_OK                 (0)
 #define SPLIT_GO_NON_MATCHING       (-1)
