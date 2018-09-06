@@ -583,6 +583,34 @@ boot_image_check(struct image_header *hdr, const struct flash_area *fap)
     return 0;
 }
 
+/*
+ * A simpler way to call boot_image_check from client code.
+ */
+int boot_verify_slot(int slot)
+{
+    const struct flash_area *fap;
+    struct image_header hdr;
+    int rc;
+
+    rc = flash_area_open(flash_area_id_from_image_slot(slot), &fap);
+    if (rc != 0) {
+        return BOOT_EFLASH;
+    }
+
+    rc = flash_area_read(fap, 0, &hdr, IMAGE_HEADER_SIZE);
+
+    if ((hdr.ih_magic != IMAGE_MAGIC || boot_image_check(&hdr, fap) != 0)) {
+        BOOT_LOG_ERR("Image in slot %d is not valid!", slot);
+        return -1;
+    }
+
+    flash_area_close(fap);
+
+    /* Image in slot is valid. */
+    return 0;
+}
+
+
 static int
 split_image_check(struct image_header *app_hdr,
                   const struct flash_area *app_fap,
