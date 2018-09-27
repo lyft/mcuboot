@@ -50,18 +50,25 @@ boot_magic = bytes([
     0x35, 0x52, 0x50, 0x0f,
     0x2c, 0xb6, 0x79, 0x80, ])
 
+STRUCT_ENDIAN_DICT = {
+        'little': '<',
+        'big':    '>'
+}
+
 class TLV():
     def __init__(self):
         self.buf = bytearray()
 
-    def add(self, kind, payload):
+    def add(self, kind, payload, endian):
         """Add a TLV record.  Kind should be a string found in TLV_VALUES above."""
-        buf = struct.pack('<BBH', TLV_VALUES[kind], 0, len(payload))
+        e = STRUCT_ENDIAN_DICT[endian]
+        buf = struct.pack(e + 'BBH', TLV_VALUES[kind], 0, len(payload))
         self.buf += buf
         self.buf += payload
 
-    def get(self):
-        header = struct.pack('<HH', TLV_INFO_MAGIC, TLV_INFO_SIZE + len(self.buf))
+    def get(self, endian):
+        e = STRUCT_ENDIAN_DICT[endian]
+        header = struct.pack(e + 'HH', TLV_INFO_MAGIC, TLV_INFO_SIZE + len(self.buf))
         return header + bytes(self.buf)
 
 class Image():
@@ -89,7 +96,7 @@ class Image():
 
     def __init__(self, version=None, header_size=IMAGE_HEADER_SIZE, pad=0,
                  align=1, slot_size=0, max_sectors=DEFAULT_MAX_SECTORS,
-                 overwrite_only=False):
+                 overwrite_only=False, endian="little"):
         self.version = version or versmod.decode_version("0")
         self.header_size = header_size or IMAGE_HEADER_SIZE
         self.pad = pad
@@ -97,11 +104,12 @@ class Image():
         self.slot_size = slot_size
         self.max_sectors = max_sectors
         self.overwrite_only = overwrite_only
+        self.endian = endian
 
     def __repr__(self):
         return "<Image version={}, header_size={}, base_addr={}, \
                 align={}, slot_size={}, max_sectors={}, overwrite_only={}, \
-                format={}, payloadlen=0x{:x}>".format(
+                endian={} format={}, payloadlen=0x{:x}>".format(
                     self.version,
                     self.header_size,
                     self.base_addr if self.base_addr is not None else "N/A",
@@ -109,6 +117,7 @@ class Image():
                     self.slot_size,
                     self.max_sectors,
                     self.overwrite_only,
+                    self.endian,
                     self.__class__.__name__,
                     len(self.payload))
 
@@ -129,7 +138,7 @@ class Image():
                 raise Exception(msg)
 
     def sign(self, key):
-        self.add_header(key)
+        self.add_header(key, self.endian)
 
         tlv = TLV()
 
@@ -139,7 +148,7 @@ class Image():
         sha.update(self.payload)
         digest = sha.digest()
 
-        tlv.add('SHA256', digest)
+        tlv.add('SHA256', digest, self.endian)
 
         if key is not None:
             pub = key.get_public_bytes()
@@ -151,9 +160,9 @@ class Image():
             sig = key.sign(bytes(self.payload))
             tlv.add(key.sig_tlv(), sig)
 
-        self.payload += tlv.get()
+        self.payload += tlv.get(self.endian)
 
-    def add_header(self, key):
+    def add_header(self, key, endian):
         """Install the image header.
 
         The key is needed to know the type of signature, and
@@ -161,7 +170,8 @@ class Image():
 
         flags = 0
 
-        fmt = ('<' +
+        e = STRUCT_ENDIAN_DICT[endian]
+        fmt = (e +
             # type ImageHdr struct {
             'I' +   # Magic uint32
             'I' +   # LoadAddr uint32

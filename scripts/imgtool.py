@@ -129,14 +129,17 @@ class BasedIntParamType(click.ParamType):
 @click.option('--align', type=click.Choice(['1', '2', '4', '8']),
               required=True)
 @click.option('-k', '--key', metavar='filename')
+@click.option('-e', '--endian', type=click.Choice(['little', 'big']),
+              default='little', help="Select little or big endian")
 @click.command(help='Create a signed or unsigned image')
 def sign(key, align, version, header_size, pad_header, slot_size, pad,
-         max_sectors, overwrite_only, infile, outfile):
+         max_sectors, overwrite_only, endian, infile, outfile):
     img = image.Image.load(infile, version=decode_version(version),
                            header_size=header_size, pad_header=pad_header,
                            pad=pad, align=int(align), slot_size=slot_size,
                            max_sectors=max_sectors,
-                           overwrite_only=overwrite_only)
+                           overwrite_only=overwrite_only,
+                           endian=endian)
     key = load_key(key) if key else None
     img.sign(key)
 
