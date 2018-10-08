@@ -19,6 +19,7 @@
 #include <assert.h>
 #include <string.h>
 #include <zephyr.h>
+#include "bootutil/bootutil_log.h"
 
 #ifdef CONFIG_UART_CONSOLE
 #error Zephyr UART console must been disabled if serial_adapter module is used.
@@ -40,11 +41,9 @@ struct line_input {
 static struct device *uart_dev;
 static struct line_input line_bufs[2];
 
-static sys_slist_t free_queue;
-static sys_slist_t used_queue;
+static sys_slist_t avail_queue;
+static sys_slist_t lines_queue;
 
-static sys_slist_t *avail_queue;
-static sys_slist_t *lines_queue;
 static u16_t cur;
 
 static int boot_uart_fifo_getline(char **line);
@@ -98,19 +97,16 @@ boot_console_init(void)
 {
 	int i;
 
-	sys_slist_init(&free_queue);
-	sys_slist_init(&used_queue);
+	/* Zephyr UART handler takes an empty buffer from avail_queue,
+	 * stores UART input in it until EOL, and then puts it into
+	 * lines_queue.
+	 */
+	sys_slist_init(&avail_queue);
+	sys_slist_init(&lines_queue);
 
 	for (i = 0; i < ARRAY_SIZE(line_bufs); i++) {
-		sys_slist_append(&free_queue, &line_bufs[i].node);
+		sys_slist_append(&avail_queue, &line_bufs[i].node);
 	}
-
-	/* Zephyr UART handler takes an empty buffer from free_queue,
-	 * stores UART input in it until EOL, and then puts it into
-	 * used_queue.
-	 */
-	avail_queue = &free_queue;
-	lines_queue = &used_queue;
 
 	return boot_uart_fifo_init();
 }
@@ -122,19 +118,25 @@ boot_uart_fifo_callback(struct device *dev)
 	u8_t byte;
 	int rx;
 
-	while (uart_irq_update(uart_dev) &&
-	       uart_irq_rx_ready(uart_dev)) {
+	uart_irq_update(uart_dev);
 
+	if (!uart_irq_rx_ready(uart_dev)) {
+		return;
+	}
+
+	while (true) {
 		rx = uart_fifo_read(uart_dev, &byte, 1);
 		if (rx != 1) {
-			continue;
+			break;
 		}
 
 		if (!cmd) {
 			sys_snode_t *node;
 
-			node = sys_slist_get(avail_queue);
+			node = sys_slist_get(&avail_queue);
 			if (!node) {
+				BOOT_LOG_ERR("Not enough memory to store"
+					     " incoming data!");
 				return;
 			}
 			cmd = CONTAINER_OF(node, struct line_input, node);
@@ -146,8 +148,9 @@ boot_uart_fifo_callback(struct device *dev)
 
 		if (byte ==  '\n') {
 			cmd->len = cur;
-			sys_slist_append(lines_queue, &cmd->node);
+			sys_slist_append(&lines_queue, &cmd->node);
 			cur = 0;
+			cmd = NULL;
 		}
 	}
 }
@@ -162,12 +165,12 @@ boot_uart_fifo_getline(char **line)
 	key = irq_lock();
 	/* Recycle cmd buffer returned previous time */
 	if (cmd != NULL) {
-		if (sys_slist_peek_tail(&free_queue) != &cmd->node) {
-			sys_slist_append(&free_queue, &cmd->node);
+		if (sys_slist_peek_tail(&avail_queue) != &cmd->node) {
+			sys_slist_append(&avail_queue, &cmd->node);
 		}
 	}
 
-	node = sys_slist_get(&used_queue);
+	node = sys_slist_get(&lines_queue);
 	irq_unlock(key);
 
 	if (node == NULL) {
@@ -195,8 +198,10 @@ boot_uart_fifo_init(void)
 	uart_irq_callback_set(uart_dev, boot_uart_fifo_callback);
 
 	/* Drain the fifo */
-	while (uart_irq_rx_ready(uart_dev)) {
-		uart_fifo_read(uart_dev, &c, 1);
+	if (uart_irq_rx_ready(uart_dev)) {
+		while (uart_fifo_read(uart_dev, &c, 1)) {
+			;
+		}
 	}
 
 	cur = 0;
@@ -205,7 +210,8 @@ boot_uart_fifo_init(void)
 
 	/* Enable all interrupts unconditionally. Note that this is due
 	 * to Zephyr issue #8393. This should be removed once the
-	 * issue is fixed in upstream Zephyr. */
+	 * issue is fixed in upstream Zephyr.
+	 */
 	irq_unlock(0);
 
 	return 0;

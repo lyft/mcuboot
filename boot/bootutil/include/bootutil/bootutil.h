@@ -75,6 +75,15 @@ struct image_trailer {
     uint8_t magic[16];
 };
 
+//Return error codes from boot_go
+#define BOOT_EFLASH     1
+#define BOOT_EFILE      2
+#define BOOT_EBADIMAGE  3
+#define BOOT_EBADVECT   4
+#define BOOT_EBADSTATUS 5
+#define BOOT_ENOMEM     6
+#define BOOT_EBADARGS   7
+
 /* you must have pre-allocated all the entries within this structure */
 int boot_go(struct boot_rsp *rsp);
 
@@ -82,6 +91,9 @@ int boot_swap_type(void);
 
 int boot_set_pending(int permanent);
 int boot_set_confirmed(void);
+
+int boot_verify_slot(int slot);
+int bootutil_img_get_tlv_sha256_hash(int slot, uint8_t * out_hash);
 
 #define SPLIT_GO_OK                 (0)
 #define SPLIT_GO_NON_MATCHING       (-1)
